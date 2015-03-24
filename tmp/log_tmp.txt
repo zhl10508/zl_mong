@@ -1,0 +1,23 @@
+------------------------------------------------------------------------
+r175735 | tong@NETEASE.COM | 2015-03-23 16:21:14 +0800 (一, 2015-03-23) | 6 行
+改变的路径: 
+   M /cggame/src/66-tdg/branch_for_new/common/archive/ladder/tdg_ladder_rank.py
+   A /cggame/src/66-tdg/branch_for_new/common/archive/mail
+   A /cggame/src/66-tdg/branch_for_new/common/archive/mail/tdg_mail_data.py
+   A /cggame/src/66-tdg/branch_for_new/common/archive/mail/tdg_mail_ladder.py
+   M /cggame/src/66-tdg/branch_for_new/common/archive/tdg_cmd.py
+   M /cggame/src/66-tdg/branch_for_new/common/archive/tdg_player_data.py
+   M /cggame/src/66-tdg/branch_for_new/common/tdg_comm_define.py
+   M /cggame/src/66-tdg/server/tdg_net_handler.py
+   M /cggame/src/66-tdg/server/tdg_room_logic.py
+   M /cggame/src/66-tdg/server/tdg_room_player.py
+   M /cggame/src/66-tdg/server/tdg_static_room.py
+   M /cggame/src/66-tdg/server/util/tdg_ladder_mgr.py
+
+_VER_ 天梯系统：每日发奖
+_VER_ 邮件系统：发送邮件功能
+_VER_ 邮件系统：读取最新邮件，并保存到客户端本地功能
+_VER_ 邮件系统：从客户端本地读取历史邮件功能
+_VER_ 邮件系统：根据邮件领取奖励，并更新邮件状态功能
+_VER_ 邮件系统：根据一定的判定条件，清理本地缓存文件中超过三个月的邮件功能
+------------------------------------------------------------------------

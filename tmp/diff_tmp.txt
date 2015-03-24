@@ -1,0 +1,147 @@
+Index: tdg_ladder_mgr.py
+===================================================================
+--- tdg_ladder_mgr.py	(revision 175734)
++++ tdg_ladder_mgr.py	(revision 175735)
+@@ -5,8 +5,11 @@
+ import time
+ import tdg_comm_const
+ import tdg_npc_castle_define
++#
+ import tdg_ladder_rank
+ import tdg_ladder_force
++import tdg_mail_data
++import tdg_mail_ladder
+ #
+ import tdg_venturer_recruit
+ #--------------------------------------------------------------------------------------------------------------------------------------------
+@@ -18,22 +21,42 @@
+ 		self.name_A = None
+ 		self.name_B = None
+ 		self.name_M = None
+-		self.ladder_timers = {}
++		self.daily_timer = None
+ 		
+ 	def destroy(self):
+ 		self.room = None
++		if self.daily_timer:
++			self.daily_timer.stop()
++			self.daily_timer.delete()
++			self.daily_timer = None
+ 	
+ 	def init_data(self):
+ 		self.ladder_match_support = tdg_npc_castle_define.LAD_TARGET.keys()
+ 		self.ladder_match_support.sort()
+ 		self.ladder_match_default = tdg_npc_castle_define.LAD_TARGET[self.ladder_match_support[-1]]
++		#
+ 		self.ladder_once_bonus_support = tdg_npc_castle_define.LAD_B_ONCE.keys()
+ 		self.ladder_once_bonus_support.sort()
+-		self.ladder_once_bonus_default = tdg_npc_castle_define.LAD_B_ONCE[self.ladder_once_bonus_support[-1]]
++		#
++		support = tdg_npc_castle_define.LAD_B_DAILY.keys()
++		support.sort()
++		self.ladder_daily_bonus = {}
++		self.ladder_daily_bonus[tdg_comm_const.LADDER_6] = {}
++		self.ladder_daily_bonus[tdg_comm_const.LADDER_9] = {}
++		self.ladder_daily_bonus[tdg_comm_const.LADDER_16] = {}
++		lower_rank = 1
++		for rank in support:
++			conf = tdg_npc_castle_define.LAD_B_DAILY[rank]
++			for lad_key, bonus_key in conf.iteritems():
++				self.ladder_daily_bonus[lad_key][(lower_rank, rank)] = bonus_key
++			lower_rank = rank + 1
+ 			
+ 	def on_cghall_init(self):
+ 		self.init_data()
+ 		self.room.cglog(tdg_comm_const.LOGTYPE_DEBUG, "[STATIC_ROOM][ACTIVE_INIT_LADDER_MANAGER]")
++		#每日发奖的timer
++		self.daily_timer = self.room.cghall_create_timer(seconds=60, callback=self.on_daily_timer, forever=True)
++		self.daily_timer.start()
+ 		#从数据库获取全服排名
+ 		tag = self.room.register_init_process()
+ 		self.room.cghall_load_coreobjs(tdg_ladder_rank.CLadderRank, {"gameid":self.room.gameid, "$or":[{"lad_key":tdg_comm_const.LADDER_6},{"lad_key":tdg_comm_const.LADDER_9},{"lad_key":tdg_comm_const.LADDER_16}]}, "index_gameid", self.on_sql_ladder_rank, tag)
+@@ -44,21 +67,22 @@
+ 		self.rank_map = {}
+ 		#查不到，说明是首次登陆，需要预生成初始的NPC
+ 		if not baselist:
++			today_start = self.get_today_start()
+ 			ladder_init_forces = []
+ 			#六人榜
+-			rank_obj, force_objs = self.do_make_ladder_npc(tdg_comm_const.LADDER_6, tdg_npc_castle_define.LAD_6, 6, 3)
++			rank_obj, force_objs = self.do_make_ladder_npc(today_start, tdg_comm_const.LADDER_6, tdg_npc_castle_define.LAD_6, 6, 3)
+ 			self.rank_map[rank_obj.lad_key] = rank_obj
+ 			rank_obj.register_dirty()
+ 			self.do_save_ladder_rank(rank_obj)
+ 			ladder_init_forces.extend(force_objs)
+ 			#九人榜
+-			rank_obj, force_objs = self.do_make_ladder_npc(tdg_comm_const.LADDER_9, tdg_npc_castle_define.LAD_9, 9, 3)
++			rank_obj, force_objs = self.do_make_ladder_npc(today_start, tdg_comm_const.LADDER_9, tdg_npc_castle_define.LAD_9, 9, 3)
+ 			self.rank_map[rank_obj.lad_key] = rank_obj
+ 			ladder_init_forces.extend(force_objs)
+ 			rank_obj.register_dirty()
+ 			self.do_save_ladder_rank(rank_obj)
+ 			#十六人榜
+-			rank_obj, force_objs = self.do_make_ladder_npc(tdg_comm_const.LADDER_16, tdg_npc_castle_define.LAD_16, 16, 4)
++			rank_obj, force_objs = self.do_make_ladder_npc(today_start, tdg_comm_const.LADDER_16, tdg_npc_castle_define.LAD_16, 16, 4)
+ 			self.rank_map[rank_obj.lad_key] = rank_obj
+ 			ladder_init_forces.extend(force_objs)
+ 			rank_obj.register_dirty()
+@@ -73,6 +97,46 @@
+ 		#
+ 		self.room.declare_init_process_ready(tag)
+ 	#-----------------------------------------------------------------------------------------------------------------------------------------
++	def get_today_start(self):
++		#凌晨两点
++		today = list(time.localtime())
++		today[3] = 2
++		today[4] = 0
++		today[5] = 0
++		today_start = time.mktime(today)
++		return today_start
++	
++	def on_daily_timer(self):
++		now = int(time.time())
++		for rank_obj in self.rank_map.itervalues():
++			if rank_obj.check_daily_bonus(now):
++				self.do_mail_daily_bonus(rank_obj, now)
++	
++	def do_mail_daily_bonus(self, rank_obj, now):
++		today_start = self.get_today_start()
++		lad_key = rank_obj.lad_key
++		new_mail_lst = []
++		for rank_key, bonus_key in self.ladder_daily_bonus[lad_key].iteritems():
++			lower_rank, upper_rank = rank_key
++			bonus_obj_lst = self.room.support_create_bonus_by_giftpack(bonus_key)
++			for rank in xrange(lower_rank, upper_rank+1):
++				to_uid = rank_obj.get_uid_by_rank(rank)
++				if to_uid is None:#
++					self.room.cglog(tdg_comm_const.LOGTYPE_ERROR, "[STATIC_ROOM][LADDER_DAILY][FIND_UID_BY_RANK_FAIL][lad_key=%d;rank=%d]" % (lad_key, rank))
++					continue
++				mail_ladder = tdg_mail_ladder.CData()
++				mail_ladder.on_create()
++				mail_ladder.on_create_by_data(lad_key, today_start, rank)
++				mail_data = tdg_mail_data.CData()
++				mail_data.on_create()
++				mail_data.on_create_by_data(to_uid, now, bonus_obj_lst)
++				new_mail_lst.append(mail_data)
++		#发送奖励邮件
++		self.room.support_save_mail2db(new_mail_lst)
++		#记录已经发送了奖励
++		rank_obj.on_daily_bonus_finish(today_start)
++		self.do_save_ladder_rank(rank_obj)
++	#-----------------------------------------------------------------------------------------------------------------------------------------
+ 	def random_nickname(self):
+ 		if self.name_A is None:
+ 			self.name_A = tdg_comm_const.POSSIBLE_NAMES_A.keys()
+@@ -132,10 +196,10 @@
+ 			lad_key, dirty_verson = tag
+ 			self.rank_map[lad_key].check_verson_and_clear_dirty(dirty_verson)
+ 	#-----------------------------------------------------------------------------------------------------------------------------------------
+-	def do_make_ladder_npc(self, lad_key, lad_conf, hero_num, grid):
++	def do_make_ladder_npc(self, today_start, lad_key, lad_conf, hero_num, grid):
+ 		rank_obj = tdg_ladder_rank.CLadderRank()
+ 		rank_obj.on_create()
+-		rank_obj.on_create_by_data(self.room.gameid, lad_key)
++		rank_obj.on_create_by_data(self.room.gameid, lad_key, today_start)
+ 		force_objs = []
+ 		#
+ 		prop_pos = []
